@@ -289,7 +289,7 @@ foreach ($item in $finalReportData) {
     $htmlBody += "<p><strong>Is Signed:</strong> $signedTag | <strong>Is Writable:</strong> $writableTag</p>"
     
     if ($item.CriticalActions) {
-        $htmlBody += "<h3>Detected Critical Actions:</h3>"
+        $htmlBody += "<h3>Detected Custom Actions:</h3>"
         $htmlBody += $item.CriticalActions | Select-Object Action, Source, Target | ConvertTo-Html -Fragment
     } else {
         $htmlBody += "<p class='no-actions'>No critical custom actions detected.</p>"
@@ -303,4 +303,5 @@ Write-Host "Reports generated successfully:" -ForegroundColor Green
 Write-Host "  -> TXT : $txtFilePath"
 Write-Host "  -> HTML: $htmlFilePath"
 Write-Host "------------------------------------------------------------"
+
 Write-Host "AUDIT COMPLETE." -ForegroundColor Cyan
