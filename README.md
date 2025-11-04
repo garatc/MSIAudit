@@ -23,7 +23,7 @@ This script automates the entire audit process:
 
 The script generates an HTML report for easy analysis of potential vulnerabilities.
 
-![HTML Report Screenshot](./img/html_report.png)
+![HTML Report Screenshot](./html_report.png)
 
 ## Usage
 
