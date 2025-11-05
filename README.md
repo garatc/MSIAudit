@@ -1,6 +1,6 @@
 # MSI SecureRepairWhitelist Auditor
 
-A PowerShell script to audit installed MSI packages listed in the Windows `SecureRepairWhitelist` registry key for privilege escalation.
+A PowerShell script to audit installed MSI packages listed in the Windows `SecureRepairWhitelist` registry key for privilege escalation (but can also audit all MSI packages and ignore the whitelist if needed).
 
 ## Why
 
@@ -13,7 +13,7 @@ The `HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Windows\Installer\SecureRepa
 -   For **each** whitelisted package, scans for potentially dangerous `CustomActions` (those running with `NoImpersonate` between `InstallInitialize` and `InstallFinalize` that run with elevated privileges).
 -   Generates a comprehensive audit report in both **TXT** and **HTML** formats.
 
-- **This script could also be useful if your target system is older and doesn't have the MS patch installed. Just remove the part where the registry whitelist is cross-referenced and include all MSI packages.**
+- **This script can also be useful if your target system is older and doesn't have the MS patch installed. Just use the -ScanAll switch.**
 
 ## Sample Report
 
