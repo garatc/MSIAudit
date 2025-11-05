@@ -8,16 +8,12 @@ The `HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Windows\Installer\SecureRepa
 
 ## Features
 
-This script automates the entire audit process:
 -   Enumerates all installed MSI products on a system.
 -   Cross-references them with the `SecureRepairWhitelist`.
--   For **each** whitelisted package, it performs three key security checks:
-    -   **Digital Signature:** Verifies if the cached MSI is digitally signed using the `WinVerifyTrust` API. If unsigned, the integrity of the package cannot be verified and you could modify its binaries for privesc.
-    -   **File Permissions:** Checks if the MSI file in `C:\Windows\Installer` is writable. If so, you could modify it to add a Custom Action or anything else you need for privesc.
-    -   **Custom Action Analysis:** Scans for potentially dangerous `CustomActions` (those running with `NoImpersonate` between `InstallInitialize` and `InstallFinalize` that run with elevated privileges).
+-   For **each** whitelisted package, scans for potentially dangerous `CustomActions` (those running with `NoImpersonate` between `InstallInitialize` and `InstallFinalize` that run with elevated privileges).
 -   Generates a comprehensive audit report in both **TXT** and **HTML** formats.
 
-- This script could also be useful if your target system is older and doesn't have the MS patch installed. Just remove the part where the registry whitelist is cross-referenced and include all MSI packages.
+- **This script could also be useful if your target system is older and doesn't have the MS patch installed. Just remove the part where the registry whitelist is cross-referenced and include all MSI packages.**
 
 ## Sample Report
 

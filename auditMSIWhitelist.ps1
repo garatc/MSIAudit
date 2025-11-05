@@ -1,9 +1,6 @@
 ﻿# Identifies all installed MSI packages present in the SecureRepair whitelist 
 # and generates a report for each one.
-# For every package, it performs three checks:
-# 1. Checks if the MSI package is digitally signed (otherwise it could be tampered with).
-# 2. Tests if the MSI package file is writable.
-# 3. Performs an advanced analysis of its Custom Actions (NoImpersonate and within repair sequence).
+# For every package, performs an advanced analysis of its Custom Actions (NoImpersonate and within repair sequence).
 
 [CmdletBinding()]
 param(
@@ -16,75 +13,9 @@ param(
 
 $OutputEncoding = [System.Text.Encoding]::UTF8
 
-#region C# Signature Verifier
-if (-not ("SignatureVerifier" -as [type])) {
-    Add-Type -TypeDefinition @"
-    using System;
-    using System.Runtime.InteropServices;
-
-    public static class SignatureVerifier
-    {
-        [DllImport("wintrust.dll", CharSet = CharSet.Unicode, ExactSpelling = true)]
-        private static extern int WinVerifyTrust(IntPtr hwnd, [MarshalAs(UnmanagedType.LPStruct)] Guid pgActionID, WinTrustData pWvtData);
-
-        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-        private class WinTrustFileInfo {
-            public uint StructSize = (uint)Marshal.SizeOf(typeof(WinTrustFileInfo));
-            public IntPtr pszFilePath;
-            public IntPtr hFile = IntPtr.Zero;
-            public IntPtr pgKnownSubject = IntPtr.Zero;
-            public WinTrustFileInfo(string _filePath) { pszFilePath = Marshal.StringToCoTaskMemAuto(_filePath); }
-            ~WinTrustFileInfo() { Marshal.FreeCoTaskMem(pszFilePath); }
-        }
-
-        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-        private class WinTrustData {
-            public uint StructSize = (uint)Marshal.SizeOf(typeof(WinTrustData));
-            public IntPtr PolicyCallbackData = IntPtr.Zero;
-            public IntPtr SIPClientData = IntPtr.Zero;
-            public UIChoice UIChoice = UIChoice.None;
-            public RevocationChecks RevocationChecks = RevocationChecks.None;
-            public UnionChoice UnionChoice = UnionChoice.File;
-            public IntPtr FileInfoPtr;
-            public StateAction StateAction = StateAction.Ignore;
-            public IntPtr StateData = IntPtr.Zero;
-            public string URLReference = null;
-            public ProvFlags ProvFlags = ProvFlags.RevocationCheckChainExcludeRoot;
-            public UIContext UIContext = UIContext.Execute;
-            public WinTrustData(string fileName) {
-                var wtfiData = new WinTrustFileInfo(fileName);
-                FileInfoPtr = Marshal.AllocCoTaskMem(Marshal.SizeOf(typeof(WinTrustFileInfo)));
-                Marshal.StructureToPtr(wtfiData, FileInfoPtr, false);
-            }
-            ~WinTrustData() { Marshal.FreeCoTaskMem(FileInfoPtr); }
-        }
-
-        private enum UIChoice : uint { All = 1, None = 2, NoBad = 3, NoGood = 4 }
-        private enum RevocationChecks : uint { None = 0x00000000, WholeChain = 0x00000001 }
-        private enum UnionChoice : uint { File = 1, Catalog, Blob, Signer, Certificate }
-        private enum StateAction : uint { Ignore = 0x00000000, Verify = 0x00000001, Close = 0x00000002, AutoCache = 0x00000003, AutoCacheFlush = 0x00000004 }
-        private enum UIContext : uint { Execute = 0, Install = 1 }
-        [Flags]
-        private enum ProvFlags : uint { RevocationCheckChainExcludeRoot = 0x00000080 }
-
-        private static readonly IntPtr INVALID_HANDLE_VALUE = new IntPtr(-1);
-        private static readonly Guid WIN_TRUST_ACTION_GENERIC_VERIFY_V2 = new Guid("00AAC56B-CD44-11d0-8CC2-00C04FC295EE");
-
-        public static bool IsSigned(string fileName) {
-            try {
-                var wtd = new WinTrustData(fileName);
-                var result = WinVerifyTrust(INVALID_HANDLE_VALUE, WIN_TRUST_ACTION_GENERIC_VERIFY_V2, wtd);
-                return result == 0;
-            } catch { return false; }
-        }
-    }
-"@
-}
-#endregion
-
 #region FUNCTIONS
 Function Get-InstalledMsiPackages {
-    Write-Host "Step 1: Retrieving all installed MSI packages..." -ForegroundColor Cyan
+    Write-Host "Retrieving all installed MSI packages..." -ForegroundColor Cyan
 	$Installer = New-Object -ComObject WindowsInstaller.Installer
 	$InstallerProducts = $Installer.ProductsEx("", "", 7)
 	$InstalledProducts = ForEach($Product in $InstallerProducts){
@@ -100,7 +31,7 @@ Function Get-InstalledMsiPackages {
 }
 
 Function Get-SecureRepairWhitelist {
-    Write-Host "Step 2: Retrieving the SecureRepair whitelist..." -ForegroundColor Cyan
+    Write-Host "Retrieving the SecureRepair whitelist..." -ForegroundColor Cyan
     $WhitelistProductCodes = @()
     $RegistryPath = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Installer\SecureRepairWhitelist"
     $WhitelistProperties = Get-ItemProperty -Path $RegistryPath -ErrorAction SilentlyContinue
@@ -113,12 +44,6 @@ Function Get-SecureRepairWhitelist {
         Write-Warning "The registry key '$RegistryPath' was not found or is empty."
     }
     return $WhitelistProductCodes
-}
-
-Function Test-MsiIsSigned {
-    param([string]$MsiPath)
-    if (-not (Test-Path -Path $MsiPath -PathType Leaf)) { return $false }
-    return [SignatureVerifier]::IsSigned($MsiPath)
 }
 
 Function Analyze-MsiCustomAction {
@@ -165,24 +90,6 @@ Function Analyze-MsiCustomAction {
         if ($Installer) { $null = [System.Runtime.InteropServices.Marshal]::ReleaseComObject($Installer) }
     }
 }
-
-Function Test-MsiIsWritable {
-    [CmdletBinding()]
-    param([string]$MsiPath)
-    $msiOpenDatabaseModeDirect = 1
-    if (-not (Test-Path -Path $MsiPath -PathType Leaf)) { return $false }
-    $Installer = $null; $Database = $null
-    try {
-        $Installer = New-Object -ComObject WindowsInstaller.Installer
-        $Database = $Installer.OpenDatabase($MsiPath, $msiOpenDatabaseModeDirect)
-        $Database.Commit()
-        return $true
-    } catch { return $false }
-    finally {
-        if ($Database) { $null = [System.Runtime.InteropServices.Marshal]::ReleaseComObject($Database) }
-        if ($Installer) { $null = [System.Runtime.InteropServices.Marshal]::ReleaseComObject($Installer) }
-    }
-}
 #endregion
 
 if (-not (Test-Path -Path $ReportPath -PathType Container)) {
@@ -196,42 +103,37 @@ $whitelist = Get-SecureRepairWhitelist
 
 if (-not $installedProducts) { Write-Warning "No installed MSI products were found. Stopping script."; return }
 
-Write-Host "Step 3: Match installed MSI packages with the whitelist..." -ForegroundColor Cyan
+Write-Host "Match installed MSI packages with the whitelist..." -ForegroundColor Cyan
 $matchingProducts = $installedProducts | Where-Object { $whitelist -contains $_.ProductCode }
 
 if (-not $matchingProducts) { Write-Host "No installed MSI package matches the whitelist. Audit finished." -ForegroundColor Green; return }
 
 Write-Host "   -> $($matchingProducts.Count) matching products found. Starting in-depth analysis." -ForegroundColor Green
 
-# --- Step 4: Analyze all whitelisted packages and collect their status ---
+# ---  Analyze all whitelisted packages and collect their status ---
 $finalReportData = [System.Collections.Generic.List[object]]::new()
 foreach ($product in $matchingProducts) {
-    Write-Host "------------------------------------------------------------"
-    Write-Host "Analyzing: $($product.ProductName) ($($product.VersionString))" -ForegroundColor White
-    
-    $isSigned = Test-MsiIsSigned -MsiPath $product.LocalPackage
-    $isWritable = Test-MsiIsWritable -MsiPath $product.LocalPackage
     $criticalActions = Analyze-MsiCustomAction -MsiPath $product.LocalPackage
     $criticalActionsCount = if ($criticalActions) { @($criticalActions).Count } else { 0 }
     
-    $finalReportData.Add([PSCustomObject]@{
-        ProductName     = $product.ProductName
-        Version         = $product.VersionString
-        ProductCode     = $product.ProductCode
-        MsiPath         = $product.LocalPackage
-        IsSigned        = $isSigned
-        IsWritable      = $isWritable
-        CriticalActions = $criticalActions
-    })
-
-    if ((-not $isSigned) -or $isWritable -or $criticalActions) {
-        Write-Host "   -> Potential privesc: Is Signed: $isSigned, Writable: $isWritable, Custom Actions: $criticalActionsCount" -ForegroundColor Yellow
+    if ($criticalActions) {
+		Write-Host "------------------------------------------------------------"
+        Write-Host "Analyzing: $($product.ProductName) ($($product.VersionString))" -ForegroundColor White
+        Write-Host "   -> Potential privesc - Custom Actions: $criticalActionsCount" -ForegroundColor Yellow
+		
+		$finalReportData.Add([PSCustomObject]@{
+          ProductName     = $product.ProductName
+          Version         = $product.VersionString
+          ProductCode     = $product.ProductCode
+          MsiPath         = $product.LocalPackage
+          CriticalActions = $criticalActions
+        })
     } 
 }
 
 # --- Step 5: Generate reports ---
 Write-Host "------------------------------------------------------------"
-Write-Host "Step 5: Generating a comprehensive report for all $($finalReportData.Count) whitelisted package(s)..." -ForegroundColor Cyan
+Write-Host "Generating comprehensive report..." -ForegroundColor Cyan
 
 $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
 $txtFilePath = Join-Path -Path $ReportPath -ChildPath "$($ReportBaseName)_$($timestamp).txt"
@@ -246,8 +148,6 @@ Product      : $($item.ProductName)
 Version      : $($item.Version)
 ProductCode  : $($item.ProductCode)
 MSI Path     : $($item.MsiPath)
-IS SIGNED    : $($item.IsSigned)
-IS WRITABLE  : $($item.IsWritable)
 ----------------------------------------------------------------------
 "@
     if ($item.CriticalActions) {
@@ -276,24 +176,19 @@ $htmlBody = "<h1>MSI Vulnerability Audit Report</h1><p>Generated on $(Get-Date)<
 
 foreach ($item in $finalReportData) {
     $class = "product-box"
-    if ($item.IsWritable) { $class += " writable" }
-    if (-not $item.IsSigned) { $class += " unsigned" }
-
-    $signedTag = if ($item.IsSigned) { "<span class='tag green'>TRUE</span>" } else { "<span class='tag orange'>FALSE</span>" }
-    $writableTag = if ($item.IsWritable) { "<span class='tag red'>TRUE</span>" } else { "<span class='tag green'>FALSE</span>" }
 
     $htmlBody += "<div class='$($class)'>"
     $htmlBody += "<h2>$($item.ProductName) - v$($item.Version)</h2>"
     $htmlBody += "<p><strong>ProductCode:</strong> <span class='code'>$($item.ProductCode)</span><br>"
     $htmlBody += "<strong>Cached MSI Path:</strong> <span class='code'>$($item.MsiPath)</span></p>"
-    $htmlBody += "<p><strong>Is Signed:</strong> $signedTag | <strong>Is Writable:</strong> $writableTag</p>"
     
     if ($item.CriticalActions) {
-        $htmlBody += "<h3>Detected Custom Actions:</h3>"
+        $htmlBody += "<h3>Detected Critical Actions:</h3>"
         $htmlBody += $item.CriticalActions | Select-Object Action, Source, Target | ConvertTo-Html -Fragment
     } else {
         $htmlBody += "<p class='no-actions'>No critical custom actions detected.</p>"
     }
+	
     $htmlBody += "</div>"
 }
 
@@ -303,5 +198,4 @@ Write-Host "Reports generated successfully:" -ForegroundColor Green
 Write-Host "  -> TXT : $txtFilePath"
 Write-Host "  -> HTML: $htmlFilePath"
 Write-Host "------------------------------------------------------------"
-
 Write-Host "AUDIT COMPLETE." -ForegroundColor Cyan
