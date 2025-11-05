@@ -1,14 +1,33 @@
-﻿# Identifies all installed MSI packages present in the SecureRepair whitelist 
-# and generates a report for each one.
-# For every package, performs an advanced analysis of its Custom Actions (NoImpersonate and within repair sequence).
-
+﻿<#
+.SYNOPSIS
+    Identifies installed MSI packages and analyzes their Custom Actions for security vulnerabilities.
+.DESCRIPTION
+    By default, this script checks all installed MSI packages that are present in the SecureRepair whitelist registry key.
+    It performs an advanced analysis of their Custom Actions to find potentially vulnerable configurations (NoImpersonate flag within the repair sequence).
+    Using the -ScanAll switch, the script will analyze ALL installed MSI packages on the system, ignoring the whitelist.
+.PARAMETER ReportPath
+    The directory path where the TXT and HTML reports will be saved.
+.PARAMETER ReportBaseName
+    (Optional) The base name for the report files. Default is "MSI_Audit_Report".
+.PARAMETER ScanAll
+    (Optional) If specified, the script will scan all installed MSI packages instead of only those in the SecureRepair whitelist.
+.EXAMPLE
+    .\auditMSIWhitelist.ps1 -ReportPath C:\Temp\MSI_Reports
+    Scans only the whitelisted MSI packages and saves the reports in C:\Temp\MSI_Reports.
+.EXAMPLE
+    .\auditMSIWhitelist.ps1 -ReportPath C:\Temp\MSI_Reports -ScanAll
+    Scans ALL installed MSI packages and saves the reports in C:\Temp\MSI_Reports.
+#>
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true, Position = 0)]
     [string]$ReportPath,
 
     [Parameter(Mandatory = $false)]
-    [string]$ReportBaseName = "MSI_Audit_Report"
+    [string]$ReportBaseName = "MSI_Audit_Report",
+
+    [Parameter(Mandatory = $false)]
+    [switch]$ScanAll
 )
 
 $OutputEncoding = [System.Text.Encoding]::UTF8
@@ -99,20 +118,32 @@ if (-not (Test-Path -Path $ReportPath -PathType Container)) {
 }
 
 $installedProducts = Get-InstalledMsiPackages
-$whitelist = Get-SecureRepairWhitelist
-
 if (-not $installedProducts) { Write-Warning "No installed MSI products were found. Stopping script."; return }
 
-Write-Host "Match installed MSI packages with the whitelist..." -ForegroundColor Cyan
-$matchingProducts = $installedProducts | Where-Object { $whitelist -contains $_.ProductCode }
+$productsToScan = @()
 
-if (-not $matchingProducts) { Write-Host "No installed MSI package matches the whitelist. Audit finished." -ForegroundColor Green; return }
+if ($ScanAll.IsPresent) {
+    Write-Host "'-ScanAll' option enabled: The script will analyze ALL installed MSI packages." -ForegroundColor Yellow
+    $productsToScan = $installedProducts
+}
+else {
+    Write-Host "Default mode: Analyzing only MSI packages from the SecureRepairWhitelist." -ForegroundColor Cyan
+    $whitelist = Get-SecureRepairWhitelist
+    Write-Host "Matching installed MSI packages with the whitelist..." -ForegroundColor Cyan
+    $productsToScan = $installedProducts | Where-Object { $whitelist -contains $_.ProductCode }
+}
 
-Write-Host "   -> $($matchingProducts.Count) matching products found. Starting in-depth analysis." -ForegroundColor Green
+if (-not $productsToScan) { 
+    Write-Host "No MSI packages to analyze. Audit finished." -ForegroundColor Green
+    return 
+}
 
-# ---  Analyze all whitelisted packages and collect their status ---
+Write-Host "   -> $($productsToScan.Count) products to analyze. Starting in-depth analysis." -ForegroundColor Green
+
+# ---  Analyze all selected packages and collect their status ---
 $finalReportData = [System.Collections.Generic.List[object]]::new()
-foreach ($product in $matchingProducts) {
+
+foreach ($product in $productsToScan) {
     $criticalActions = Analyze-MsiCustomAction -MsiPath $product.LocalPackage
     $criticalActionsCount = if ($criticalActions) { @($criticalActions).Count } else { 0 }
     
@@ -131,7 +162,7 @@ foreach ($product in $matchingProducts) {
     } 
 }
 
-# --- Step 5: Generate reports ---
+# --- Generate reports ---
 Write-Host "------------------------------------------------------------"
 Write-Host "Generating comprehensive report..." -ForegroundColor Cyan
 
@@ -140,7 +171,7 @@ $txtFilePath = Join-Path -Path $ReportPath -ChildPath "$($ReportBaseName)_$($tim
 $htmlFilePath = Join-Path -Path $ReportPath -ChildPath "$($ReportBaseName)_$($timestamp).html"
 
 # --- Generate TXT report ---
-$txtReport = "MSI VULNERABILITY AUDIT REPORT - $(Get-Date)`n`nThis report lists all whitelisted MSI packages and their security status.`n"
+$txtReport = "MSI VULNERABILITY AUDIT REPORT - $(Get-Date)`n"
 foreach ($item in $finalReportData) {
     $txtReport += @"
 ----------------------------------------------------------------------
@@ -172,7 +203,7 @@ $txtReport | Out-File -FilePath $txtFilePath -Encoding utf8
 
 # --- Generate HTML report ---
 $htmlHead = "<style>body{font-family:'Segoe UI',sans-serif;margin:20px;background-color:#f4f4f4}h1{color:#2c3e50;border-bottom:2px solid #2980b9}.product-box{background-color:#fff;border:1px solid #bdc3c7;border-left:5px solid #2ecc71;border-radius:5px;margin-bottom:20px;padding:15px;box-shadow:0 2px 4px rgba(0,0,0,.1)}.product-box.writable{border-left-color:#e74c3c !important;}.product-box.unsigned{border-left-color:#f39c12 !important;}.tag{font-weight:bold;font-size:1.1em}.tag.red{color:#e74c3c}.tag.orange{color:#f39c12}.tag.green{color:#27ae60}.no-actions{margin-top:15px;color:#555;font-style:italic}h2{color:#2980b9;margin-top:0}p{color:#34495e}table{border-collapse:collapse;width:100%;margin-top:15px}th,td{border:1px solid #ddd;text-align:left;padding:8px}th{background-color:#ecf0f1;color:#2c3e50}tr:nth-child(even){background-color:#f9f9f9}.code{font-family:'Consolas',monospace;background-color:#ecf0f1;padding:2px 5px;border-radius:3px}</style>"
-$htmlBody = "<h1>MSI Vulnerability Audit Report</h1><p>Generated on $(Get-Date)</p><p>This report lists all whitelisted MSI packages and their security status.</p>"
+$htmlBody = "<h1>MSI Vulnerability Audit Report</h1><p>Generated on $(Get-Date)</p>"
 
 foreach ($item in $finalReportData) {
     $class = "product-box"

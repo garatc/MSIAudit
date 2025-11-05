@@ -23,8 +23,16 @@ The script generates an HTML report for easy analysis of potential vulnerabiliti
 
 ## Usage
 
+Scan only whitelisted packages (useful for recent Windows versions - default)
+
 ```powershell
-.\auditMSIWhitelist.ps1 "C:\ReportPath"
+.\auditMSIWhitelist.ps1 -ReportPath "C:\ReportPath"
+```
+
+Scan ALL installed packages (useful for older Windows versions where UAC never showed during repair process)
+
+```powershell
+.\auditMSIWhitelist.ps1 -ReportPath "C:\ReportPath" -ScanAll
 ```
 
 ## Disclaimer
