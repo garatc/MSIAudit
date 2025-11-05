@@ -1,4 +1,4 @@
-# MSI SecureRepairWhitelist Auditor
+# MSI package Auditor
 
 A PowerShell script to audit installed MSI packages listed in the Windows `SecureRepairWhitelist` registry key for privilege escalation (but can also audit all MSI packages and ignore the whitelist if needed).
 
